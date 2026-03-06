@@ -1,6 +1,8 @@
 ﻿// POR ESTA (apenas para teste local):
 const API_URL = 'https://script.google.com/macros/s/AKfycbzbXBOkRN2YiYremndvUXKXbvMAbqkJRPV8NvJEssARPoScg_bX5ysWbUrgZegEQ1FOGw/exec';
 const STORAGE_THEME_KEY = 'dashboard-theme';
+const AUTO_REFRESH_INTERVAL_MS = 3 * 60 * 1000;
+const AUTO_REFRESH_TICK_MS = 1000;
 
 let dadosCompletos = [];
 let dadosFiltrados = [];
@@ -10,6 +12,11 @@ let filtros = {
     status: 'todos',
     ordem: 'desc'
 };
+let autoRefreshAtivo = true;
+let autoRefreshIntervalId = null;
+let tempoRestanteAutoMs = AUTO_REFRESH_INTERVAL_MS;
+let inicioCicloAutoMs = Date.now();
+let carregamentoEmAndamento = false;
 
 const ultimaAtualizacaoEl = document.getElementById('ultimaAtualizacao');
 const cardsContainer = document.getElementById('cardsContainer');
@@ -28,15 +35,24 @@ const modalBody = document.getElementById('modalBody');
 const btnTema = document.getElementById('btnTema');
 const temaIcone = document.getElementById('temaIcone');
 const temaLabel = document.getElementById('temaLabel');
+const btnPausarAuto = document.getElementById('btnPausarAuto');
+const barraAutoRefresh = document.getElementById('barraAutoRefresh');
+const tempoRestanteAutoEl = document.getElementById('tempoRestanteAuto');
+const statusAutoRefreshEl = document.getElementById('statusAutoRefresh');
 
 document.addEventListener('DOMContentLoaded', () => {
     inicializarTema();
     configurarEventos();
+    iniciarAutoRefresh();
     carregarDados();
 });
 
 function configurarEventos() {
-    btnAtualizar.addEventListener('click', carregarDados);
+    btnAtualizar.addEventListener('click', atualizarAgora);
+
+    if (btnPausarAuto) {
+        btnPausarAuto.addEventListener('click', alternarAutoRefresh);
+    }
 
     filtroModeloEl.addEventListener('click', (e) => {
         if (e.target.classList.contains('filtro-btn')) {
@@ -119,7 +135,97 @@ function atualizarBotaoTema(tema) {
     }
 }
 
+function atualizarAgora() {
+    reiniciarContagemAutoRefresh();
+    carregarDados();
+}
+
+function iniciarAutoRefresh() {
+    reiniciarContagemAutoRefresh();
+
+    if (autoRefreshIntervalId) {
+        clearInterval(autoRefreshIntervalId);
+    }
+
+    autoRefreshIntervalId = setInterval(processarAutoRefresh, AUTO_REFRESH_TICK_MS);
+    atualizarEstadoAutoRefreshUI();
+}
+
+function processarAutoRefresh() {
+    if (!autoRefreshAtivo) {
+        return;
+    }
+
+    const decorridoMs = Date.now() - inicioCicloAutoMs;
+    tempoRestanteAutoMs = Math.max(AUTO_REFRESH_INTERVAL_MS - decorridoMs, 0);
+
+    if (tempoRestanteAutoMs <= 0) {
+        reiniciarContagemAutoRefresh();
+        carregarDados();
+        return;
+    }
+
+    atualizarEstadoAutoRefreshUI();
+}
+
+function alternarAutoRefresh() {
+    autoRefreshAtivo = !autoRefreshAtivo;
+
+    if (autoRefreshAtivo) {
+        if (tempoRestanteAutoMs <= 0 || tempoRestanteAutoMs > AUTO_REFRESH_INTERVAL_MS) {
+            tempoRestanteAutoMs = AUTO_REFRESH_INTERVAL_MS;
+        }
+
+        inicioCicloAutoMs = Date.now() - (AUTO_REFRESH_INTERVAL_MS - tempoRestanteAutoMs);
+    }
+
+    atualizarEstadoAutoRefreshUI();
+}
+
+function reiniciarContagemAutoRefresh() {
+    inicioCicloAutoMs = Date.now();
+    tempoRestanteAutoMs = AUTO_REFRESH_INTERVAL_MS;
+    atualizarEstadoAutoRefreshUI();
+}
+
+function atualizarEstadoAutoRefreshUI() {
+    if (tempoRestanteAutoEl) {
+        tempoRestanteAutoEl.textContent = formatarTempoRestante(tempoRestanteAutoMs);
+    }
+
+    if (barraAutoRefresh) {
+        const porcentagem = Math.max(0, Math.min(100, (tempoRestanteAutoMs / AUTO_REFRESH_INTERVAL_MS) * 100));
+        barraAutoRefresh.style.width = `${porcentagem}%`;
+        barraAutoRefresh.classList.toggle('pausado', !autoRefreshAtivo);
+    }
+
+    if (statusAutoRefreshEl) {
+        statusAutoRefreshEl.textContent = autoRefreshAtivo
+            ? 'Atualização automática ativa'
+            : 'Atualização automática pausada';
+    }
+
+    if (btnPausarAuto) {
+        btnPausarAuto.classList.toggle('pausado', !autoRefreshAtivo);
+        btnPausarAuto.textContent = autoRefreshAtivo
+            ? '⏸ Pausar atualização automática'
+            : '▶ Retomar atualização automática';
+    }
+}
+
+function formatarTempoRestante(tempoMs) {
+    const totalSegundos = Math.max(0, Math.ceil(tempoMs / 1000));
+    const minutos = Math.floor(totalSegundos / 60);
+    const segundos = totalSegundos % 60;
+    return `${String(minutos).padStart(2, '0')}:${String(segundos).padStart(2, '0')}`;
+}
+
 async function carregarDados() {
+    if (carregamentoEmAndamento) {
+        return;
+    }
+
+    carregamentoEmAndamento = true;
     mostrarLoading(true);
 
     try {
@@ -153,6 +259,7 @@ async function carregarDados() {
         mostrarErro('Erro de conexão com a API. Tente novamente.');
     } finally {
         mostrarLoading(false);
+        carregamentoEmAndamento = false;
     }
 }
 
@@ -465,7 +572,7 @@ function mostrarLoading(ativo) {
         cardsContainer.innerHTML = '<div class="loading-cards"><span class="loading"></span> Carregando dados da API...</div>';
     } else {
         btnAtualizar.disabled = false;
-        btnAtualizar.innerHTML = '<span>↻</span> Atualizar dados';
+        btnAtualizar.innerHTML = '<span>↻</span> Atualizar agora';
     }
 }
 
