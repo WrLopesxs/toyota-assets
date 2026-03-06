@@ -1,7 +1,7 @@
 ﻿// ============================================
 // CONFIGURAÃ‡Ã•ES
 // ============================================
-const API_URL = 'https://script.google.com/macros/s/AKfycby1maOcceERkhtNyoBb0_3xHwzV7iupXGkyx-cUeJSKJKVisQ40ui9g1k-wpb2wd7be/exec';
+const API_URL = 'https://script.google.com/macros/s/AKfycbzKX5yLRRwbzV8-iggoNlM780Np7Z-drBke0D629GDm4QLE7ZAkOGpBBT5zo77kE9Zb/exec';
 
 // ============================================
 // DADOS DOS PART NUMBERS (MESMA ORDEM QUE VOCÃŠ PASSOU)
@@ -648,6 +648,16 @@ function executarConfirmacaoModal() {
         acao();
     }
 }
+
+function temQuantidadePositiva(...valores) {
+    return valores.some(valor => Number(valor || 0) > 0);
+}
+
+function numeroPositivoOuNulo(valor) {
+    const numero = Number(valor || 0);
+    return Number.isFinite(numero) && numero > 0 ? numero : null;
+}
+
 function prepararEnvio() {
     const cards = document.querySelectorAll('.card-pn');
     const dadosEnvio = [];
@@ -657,24 +667,39 @@ function prepararEnvio() {
         const estoqueFrac = card.querySelector('.estoque-frac').value;
         const reparoPalete = card.querySelector('.reparo-palete').value;
         const reparoFrac = card.querySelector('.reparo-frac').value;
-        if (campoTemValor(estoquePalete) || campoTemValor(estoqueFrac)) {
-            dadosEnvio.push({
+
+        const estoquePaleteNum = numeroPositivoOuNulo(estoquePalete);
+        const estoqueFracNum = numeroPositivoOuNulo(estoqueFrac);
+        const reparoPaleteNum = numeroPositivoOuNulo(reparoPalete);
+        const reparoFracNum = numeroPositivoOuNulo(reparoFrac);
+
+        // Mantem "0" como preenchido no progresso, mas envia para API apenas se houver valor > 0.
+        if (temQuantidadePositiva(estoquePaleteNum, estoqueFracNum)) {
+            const itemEstoque = {
                 partNumber: pn,
                 turno: turnoAtivo,
                 tipo: 'estoque',
-                qtdePalete: parseInt(estoquePalete || 0, 10),
-                fracionado: parseInt(estoqueFrac || 0, 10),
                 timestamp: new Date().toISOString()
+            };
+            if (estoquePaleteNum !== null) itemEstoque.qtdePalete = estoquePaleteNum;
+            if (estoqueFracNum !== null) itemEstoque.fracionado = estoqueFracNum;
+
+            dadosEnvio.push({
+                ...itemEstoque
             });
         }
-        if (campoTemValor(reparoPalete) || campoTemValor(reparoFrac)) {
-            dadosEnvio.push({
+        if (temQuantidadePositiva(reparoPaleteNum, reparoFracNum)) {
+            const itemReparo = {
                 partNumber: pn,
                 turno: turnoAtivo,
                 tipo: 'reparo',
-                qtdePalete: parseInt(reparoPalete || 0, 10),
-                fracionado: parseInt(reparoFrac || 0, 10),
                 timestamp: new Date().toISOString()
+            };
+            if (reparoPaleteNum !== null) itemReparo.qtdePalete = reparoPaleteNum;
+            if (reparoFracNum !== null) itemReparo.fracionado = reparoFracNum;
+
+            dadosEnvio.push({
+                ...itemReparo
             });
         }
     });
@@ -696,15 +721,15 @@ async function enviarParaAPI(dados) {
             itens: dados.map(item => ({
                 partNumber: item.partNumber,
                 tipo: item.tipo,
-                qtdePalete: item.qtdePalete,
-                fracionado: item.fracionado
+                ...(Number(item.qtdePalete) > 0 ? { qtdePalete: item.qtdePalete } : {}),
+                ...(Number(item.fracionado) > 0 ? { fracionado: item.fracionado } : {})
             }))
         };
 
-        console.log('ðŸ“¦ Enviando lote com', dados.length, 'itens:', dadosLote);
+        console.log('Enviando lote com', dados.length, 'itens');
 
         // ÃšNICA REQUISIÃ‡ÃƒO com TODOS os itens
-        const response = await fetch(API_URL, {
+        await fetch(API_URL, {
             method: 'POST',
             mode: 'no-cors',
             headers: {
@@ -723,26 +748,7 @@ async function enviarParaAPI(dados) {
 
     } catch (error) {
         console.error('âŒ Erro no envio do lote:', error);
-        
-        // Tenta fallback: enviar um por um se o lote falhar
-        console.log('âš ï¸ Tentando fallback: envio individual...');
-        
-        try {
-            for (const item of dados) {
-                await fetch(API_URL, {
-                    method: 'POST',
-                    mode: 'no-cors',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify(item)
-                });
-            }
-            mostrarModalSucesso(dados);
-            mostrarNotificacao('Envio concluÃ­do (modo fallback)', 'sucesso');
-        } catch (fallbackError) {
-            mostrarNotificacao('Erro ao enviar dados. Tente novamente.', 'erro');
-        }
+        mostrarNotificacao('Erro ao enviar dados. Tente novamente.', 'erro');
     } finally {
         btnEnviar.disabled = false;
         btnEnviar.innerHTML = '<span class="btn-enviar-icon" aria-hidden="true">-></span> ENVIAR INVENTARIO';
@@ -759,14 +765,18 @@ function mostrarModalSucesso(dados) {
     if (estoque.length > 0) {
         resumo += '<strong>ESTOQUE:</strong><br>';
         estoque.forEach(item => {
-            resumo += `â€¢ ${item.partNumber}: ${item.qtdePalete} palete, ${item.fracionado} frac<br>`;
+            const palete = Number(item.qtdePalete) > 0 ? item.qtdePalete : '-';
+            const frac = Number(item.fracionado) > 0 ? item.fracionado : '-';
+            resumo += `â€¢ ${item.partNumber}: ${palete} palete, ${frac} frac<br>`;
         });
     }
     
     if (reparo.length > 0) {
         resumo += '<br><strong>REPARO:</strong><br>';
         reparo.forEach(item => {
-            resumo += `â€¢ ${item.partNumber}: ${item.qtdePalete} palete, ${item.fracionado} frac<br>`;
+            const palete = Number(item.qtdePalete) > 0 ? item.qtdePalete : '-';
+            const frac = Number(item.fracionado) > 0 ? item.fracionado : '-';
+            resumo += `â€¢ ${item.partNumber}: ${palete} palete, ${frac} frac<br>`;
         });
     }
     
@@ -806,4 +816,3 @@ function scrollAteCard(card) {
         card.classList.remove('alerta');
     }, 2000);
 }
-
