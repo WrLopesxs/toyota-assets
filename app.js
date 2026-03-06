@@ -1,7 +1,7 @@
 ﻿// ============================================
 // CONFIGURAÃ‡Ã•ES
 // ============================================
-const API_URL = 'https://script.google.com/macros/s/AKfycbzKX5yLRRwbzV8-iggoNlM780Np7Z-drBke0D629GDm4QLE7ZAkOGpBBT5zo77kE9Zb/exec';
+const API_URL = 'https://script.google.com/macros/s/AKfycbyLUYT8ME3KKHMveENbTxdtJVDQXwuw37ef3NXcBk02wC0PoF48MrsmyYEYFmwbS1s/exec';
 
 // ============================================
 // DADOS DOS PART NUMBERS (MESMA ORDEM QUE VOCÃŠ PASSOU)
